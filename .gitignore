@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.npm/
+.pnp
+.pnp.js
+
+# Environment files (secrets must never be committed)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime / generated
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.expo/
+.expo-shared/
+.expo-shared/
+web-build/
+expo-env.d.ts
+
+# API uploaded receipt files (runtime state, not source)
+apps/api/uploads/
+apps/api/storage/
+uploads/
+
+# Local database volumes / dumps
+*.sql.gz
+pgdata/
+.docker-data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

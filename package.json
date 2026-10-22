@@ -1,0 +1,35 @@
+{
+  "name": "miniledger",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MiniLedger - track money lent to friends. Expo React Native mobile app + Express/PostgreSQL API.",
+  "scripts": {
+    "api:install": "npm --prefix apps/api install",
+    "mobile:install": "npm --prefix apps/mobile install",
+    "install:all": "npm run api:install && npm run mobile:install",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:reset": "docker compose down -v",
+    "api:migrate": "npm --prefix apps/api run migrate",
+    "api:dev": "npm --prefix apps/api run dev",
+    "api:start": "npm --prefix apps/api run start",
+    "api:typecheck": "npm --prefix apps/api run typecheck",
+    "api:lint": "npm --prefix apps/api run lint",
+    "api:test": "npm --prefix apps/api run test",
+    "api:test:unit": "npm --prefix apps/api run test:unit",
+    "api:test:integration": "npm --prefix apps/api run test:integration",
+    "mobile:start": "npm --prefix apps/mobile run start",
+    "mobile:android": "npm --prefix apps/mobile run android",
+    "mobile:ios": "npm --prefix apps/mobile run ios",
+    "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
+    "mobile:lint": "npm --prefix apps/mobile run lint",
+    "mobile:test": "npm --prefix apps/mobile run test",
+    "typecheck": "npm run api:typecheck && npm run mobile:typecheck",
+    "lint": "npm run api:lint && npm run mobile:lint",
+    "test": "npm run api:test && npm run mobile:test"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
