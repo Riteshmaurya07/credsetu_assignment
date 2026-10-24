@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { buildTestApp, bearer, login, requestOtp } from '../helpers/api.js';
 import { advanceClock, resetClock, setClock } from '../../src/utils/clock.js';
@@ -33,10 +33,63 @@ describe('POST /api/auth/request-otp', () => {
     // Removing the phone number, no other six digit sequence may remain.
     expect(serialized.replaceAll('+919876543210', '')).not.toMatch(/\d{6}/);
 
-    // ...but it must be printed to the API terminal.
+    // ...but it must be printed to the API terminal in the documented format.
     expect(code).toMatch(/^\d{6}$/);
-    expect(logLine).toContain('[MOCK OTP]');
-    expect(logLine).toContain('+919876543210');
+    expect(logLine).toMatch(
+      /^\[MOCK OTP\] phone=\+919876543210 code=\d{6} expiresIn=5m attempts=5$/,
+    );
+  });
+
+  it('prints the mock OTP to stdout even when diagnostic logging is silenced', async () => {
+    // The integration setup sets the logger level to `silent`: the code must
+    // still reach stdout because OTP logging is a developer affordance, not a
+    // diagnostic message.
+    const previous = getEnv().otpLogEnabled;
+    setEnv({ otpLogEnabled: true });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const response = await request(app)
+        .post('/api/auth/request-otp')
+        .send({ phone: PHONE });
+
+      expect(response.status).toBe(200);
+      const lines = logSpy.mock.calls.map((call) => String(call[0] ?? ''));
+      const otpLine = lines.find((line) => line.startsWith('[MOCK OTP]'));
+
+      expect(otpLine).toBeDefined();
+      expect(otpLine).toMatch(
+        /^\[MOCK OTP\] phone=\+919876543210 code=\d{6} expiresIn=5m attempts=5$/,
+      );
+
+      // The printed code is the code that actually verifies.
+      const printedCode = /code=(\d{6})/.exec(otpLine as string)?.[1];
+      const verify = await request(app)
+        .post('/api/auth/verify-otp')
+        .send({ phone: PHONE, code: printedCode });
+      expect(verify.status).toBe(200);
+    } finally {
+      logSpy.mockRestore();
+      setEnv({ otpLogEnabled: previous });
+    }
+  });
+
+  it('never prints the code when OTP logging is disabled', async () => {
+    const previous = getEnv().otpLogEnabled;
+    setEnv({ otpLogEnabled: false });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const response = await request(app)
+        .post('/api/auth/request-otp')
+        .send({ phone: PHONE });
+
+      expect(response.status).toBe(200);
+      const lines = logSpy.mock.calls.map((call) => String(call[0] ?? ''));
+      expect(lines.some((line) => line.includes('[MOCK OTP]'))).toBe(false);
+      expect(lines.some((line) => /\b\d{6}\b/.test(line))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+      setEnv({ otpLogEnabled: previous });
+    }
   });
 
   it('rejects an invalid phone number', async () => {

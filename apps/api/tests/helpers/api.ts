@@ -26,7 +26,7 @@ export async function requestOtp(
   phone: string,
   countryCode?: string,
 ): Promise<OtpCapture> {
-  const spy = vi.spyOn(logger, 'info');
+  const spy = vi.spyOn(logger, 'otp');
   try {
     const response = await request(app)
       .post('/api/auth/request-otp')

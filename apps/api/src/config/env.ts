@@ -142,7 +142,9 @@ export function buildEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     otpMaxAttempts: readInt(source, 'OTP_MAX_ATTEMPTS', 5),
     otpResendCooldownSeconds: readInt(source, 'OTP_RESEND_COOLDOWN_SECONDS', 30),
     otpHashSecret: readString(source, 'OTP_HASH_SECRET', jwtSecret),
-    otpLogEnabled: readBool(source, 'OTP_LOG_ENABLED', true),
+    // On by default outside production so local logins always work; production
+    // must opt in explicitly rather than leaking codes into its logs.
+    otpLogEnabled: readBool(source, 'OTP_LOG_ENABLED', nodeEnv !== 'production'),
     otpRateLimitPerPhone: readInt(source, 'OTP_RATE_LIMIT_PER_PHONE', 5),
     otpRateLimitPerIp: readInt(source, 'OTP_RATE_LIMIT_PER_IP', 30),
     otpRateLimitWindowMs: readInt(source, 'OTP_RATE_LIMIT_WINDOW_MS', 10 * 60 * 1000),

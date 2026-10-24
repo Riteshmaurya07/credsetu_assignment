@@ -43,11 +43,24 @@ function write(level: Level, message: string, meta?: unknown): void {
   }
 }
 
+/**
+ * Writes a developer-facing line to stdout exactly as given: no timestamp, no
+ * level prefix and no LOG_LEVEL filtering.
+ *
+ * Mock OTPs must stay visible whenever the feature is enabled, so lowering
+ * LOG_LEVEL (for example to `warn`) can never hide the code that a developer
+ * needs to sign in.
+ */
+function writeRaw(message: string): void {
+  console.log(message);
+}
+
 export const logger = {
   debug: (message: string, meta?: unknown) => write('debug', message, meta),
   info: (message: string, meta?: unknown) => write('info', message, meta),
   warn: (message: string, meta?: unknown) => write('warn', message, meta),
   error: (message: string, meta?: unknown) => write('error', message, meta),
+  otp: (message: string) => writeRaw(message),
   setLevel: (level: Level | 'silent' | null) => {
     levelOverride = level;
   },

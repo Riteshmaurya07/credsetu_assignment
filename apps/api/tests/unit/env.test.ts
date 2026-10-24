@@ -58,4 +58,14 @@ describe('buildEnv', () => {
   it('throws when a numeric variable is not a number', () => {
     expect(() => buildEnv({ PORT: 'abc' })).toThrow(/must be an integer/);
   });
+
+  it('parses OTP_LOG_ENABLED as a boolean and defaults it on outside production', () => {
+    expect(buildEnv({}).otpLogEnabled).toBe(true);
+    expect(buildEnv({ OTP_LOG_ENABLED: 'true' }).otpLogEnabled).toBe(true);
+    expect(buildEnv({ OTP_LOG_ENABLED: 'TRUE' }).otpLogEnabled).toBe(true);
+    expect(buildEnv({ OTP_LOG_ENABLED: '1' }).otpLogEnabled).toBe(true);
+    expect(buildEnv({ OTP_LOG_ENABLED: 'false' }).otpLogEnabled).toBe(false);
+    expect(buildEnv({ OTP_LOG_ENABLED: '0' }).otpLogEnabled).toBe(false);
+    expect(buildEnv({ OTP_LOG_ENABLED: '' }).otpLogEnabled).toBe(true);
+  });
 });

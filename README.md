@@ -12,7 +12,7 @@ overdue.
 | **Mobile app** | `apps/mobile` — Expo SDK 58, React Native 0.88, React 19, React Navigation 7, SecureStore, Expo ImagePicker |
 | **API** | `apps/api` — Express 5, TypeScript (ESM), `pg`, `zod`, JWT, helmet, rate limiting |
 | **Database** | PostgreSQL 16 (Docker Compose) with versioned SQL migrations |
-| **Tests** | 156 automated tests (102 API + 54 mobile) — unit + integration, run against a real PostgreSQL |
+| **Tests** | 159 automated tests (105 API + 54 mobile) — unit + integration, with the API integration suite run against a real PostgreSQL |
 
 ---
 
@@ -199,7 +199,10 @@ The code:
 - is replaced when a new code is requested,
 - and a new code can only be requested every 30 seconds.
 
-Set `OTP_LOG_ENABLED=false` to stop printing codes (useful in CI).
+The `[MOCK OTP]` line is written straight to stdout, so it is **not** filtered by `LOG_LEVEL` —
+lowering logging to `warn` or `silent` can never hide a code you need to sign in. OTP logging is
+**on by default outside production**; set `OTP_LOG_ENABLED=false` to turn it off (useful in CI),
+or set it explicitly to `true` if you really want codes in a production log.
 
 ---
 
@@ -255,19 +258,69 @@ curl -s -X PATCH http://localhost:4000/api/loans/<loanId>/repay \
   -H 'Authorization: Bearer <token>'
 ```
 
+### Response shapes
+
+```jsonc
+// POST /api/auth/request-otp
+{ "success": true, "data": {
+  "phone": "+919876543210",
+  "expiresInSeconds": 300,
+  "resendAvailableInSeconds": 30,
+  "message": "A verification code has been sent. Check the API terminal for the mock code."
+} }
+
+// POST /api/auth/verify-otp
+{ "success": true, "data": {
+  "token": "<jwt>",
+  "tokenType": "Bearer",
+  "expiresInSeconds": 604800,
+  "user": { "id": "<uuid>", "phone": "+919876543210", "createdAt": "2026-10-24T10:00:00.000Z" }
+} }
+
+// GET /api/loans          (overdue pending first, then by due date)
+{ "success": true, "data": { "loans": [ /* Loan */ ], "count": 1 } }
+
+// Loan
+{ "id": "<uuid>", "friendName": "Rahul", "amount": "1500.50", "dueDate": "2026-12-01",
+  "status": "pending", "isOverdue": false, "daysOverdue": 0, "receiptPath": null,
+  "repaidAt": null, "createdAt": "…", "updatedAt": "…" }
+
+// GET /api/loans/summary
+{ "success": true, "data": {
+  "totalLent": "1500.50", "totalRepaid": "0.00", "overdueAmount": "0.00",
+  "pendingAmount": "1500.50", "loanCount": 1, "pendingCount": 1,
+  "repaidCount": 0, "overdueCount": 0
+} }
+
+// POST /api/loans (201), PATCH /api/loans/:id/repay, POST /api/loans/:id/receipt
+{ "success": true, "data": { "loan": { /* Loan */ } } }
+```
+
+`isOverdue` and `daysOverdue` are computed with the server's `APP_TIMEZONE`, not the device clock.
+
 ### Error codes
 
 | Code | Status | Meaning |
 |---|---|---|
-| `VALIDATION_ERROR` | 400 | The request body failed validation |
-| `OTP_INVALID` / `OTP_EXPIRED` / `OTP_ATTEMPTS_EXCEEDED` | 400 | Wrong, stale or over-used code |
-| `OTP_REUSE_DETECTED` | 400 | The code was already consumed |
-| `RATE_LIMITED` | 429 | Too many OTP requests |
-| `UNAUTHORIZED` | 401 | Missing or invalid bearer token |
+| `VALIDATION_ERROR` | 422 | The request body or an identifier failed validation (`details` lists the fields) |
+| `INVALID_JSON` | 400 | The request body is not valid JSON |
+| `OTP_INVALID` | 400 | Wrong or unknown code |
+| `OTP_EXPIRED` | 400 | The code is older than `OTP_EXPIRY_MINUTES` |
+| `OTP_USED` | 400 | The code was already consumed |
+| `RATE_LIMITED` | 429 | OTP cooldown, too many requests, or too many wrong attempts |
+| `TOKEN_MISSING` | 401 | No bearer token was supplied |
+| `TOKEN_INVALID` | 401 | The token is malformed or was signed with another secret |
+| `TOKEN_EXPIRED` | 401 | The token is past `JWT_EXPIRES_IN_SECONDS` |
 | `FORBIDDEN` | 403 | Authenticated but not allowed |
 | `LOAN_NOT_FOUND` | 404 | No such loan **for this user** |
 | `LOAN_ALREADY_REPAID` | 409 | The loan is already settled |
-| `RECEIPT_REQUIRED` / `RECEIPT_TOO_LARGE` | 400 | Receipt upload problem |
+| `RECEIPT_REQUIRED` | 400 | No image was sent in the `receipt` field |
+| `UNSUPPORTED_FILE_TYPE` | 400 | Receipt is not JPEG, PNG, WEBP or HEIC |
+| `INVALID_RECEIPT_PATH` | 400 | A stored receipt path escaped the upload directory |
+| `RECEIPT_NOT_FOUND` / `RECEIPT_FILE_MISSING` | 404 | The loan has no receipt, or its file is gone |
+| `PAYLOAD_TOO_LARGE` | 413 | Request body exceeded the 1 MB JSON limit |
+| `ROUTE_NOT_FOUND` | 404 | No route matches the method and path |
+| `INTERNAL_ERROR` | 500 | Unexpected failure (details are hidden in production) |
 
 ---
 
@@ -298,8 +351,8 @@ backs the summary and overdue queries.
 
 - Amounts are validated and normalised to an exact decimal string (`"1500.5"` → `"1500.50"`).
 - At most two decimal places; strictly positive; stored as `NUMERIC(14,2)`.
-- Aggregation happens with `SUM()` in PostgreSQL and integer paise arithmetic in the service layer
-  — JavaScript floats are never used for money.
+- Aggregation happens with `SUM()` in PostgreSQL; wherever the application does arithmetic it uses
+  integer paise, so JavaScript floats are never used for money.
 
 **Overdue**
 
@@ -326,9 +379,9 @@ backs the summary and overdue queries.
 
 ```bash
 npm test                      # API + mobile
-npm run api:test              # 102 API tests
-npm run api:test:unit         # 51 unit tests (no database needed)
-npm run api:test:integration  # 51 integration tests (real PostgreSQL)
+npm run api:test              # 105 API tests
+npm run api:test:unit         # 52 unit tests (no database needed)
+npm run api:test:integration  # 53 integration tests (real PostgreSQL)
 npm run mobile:test           # 54 mobile unit tests
 npm run typecheck             # both apps
 npm run lint                  # both apps
@@ -345,7 +398,7 @@ What is covered:
 | Money | Decimal parsing, zero handling, paise arithmetic, overflow guards |
 | Dates | Overdue boundaries, "due today is not overdue", timezone handling |
 | Phone | Normalisation to E.164-like form, dial-code disambiguation, invalid input |
-| OTP | Hashing, expiry, attempt limits, single use, cooldown, reuse detection |
+| OTP | Hashing, expiry, attempt limits, single use, cooldown, reuse detection, log visibility and suppression |
 | Auth API | Request/verify flows, invalid code, expired code, rate limiting, token rejection |
 | Loans API | Create/list/summary/repay, validation errors, cross-user isolation, 404/409 paths |
 | Mobile format | Indian digit grouping, exact currency rendering, date wording, phone display |
@@ -355,11 +408,15 @@ What is covered:
 There is also an end-to-end smoke test against a **running** API:
 
 ```bash
-# terminal 1
-npm run api:dev
+# terminal 1 - the script reads the code from this log file
+npm run api:dev *> apps/api/dev-server.log
 # terminal 2
 powershell -ExecutionPolicy Bypass -File scripts\smoke.ps1
 ```
+
+The script tails `apps/api/dev-server.log` to pick up the `[MOCK OTP]` line, so start the API with
+its output redirected there (as above). It also waits ~31 seconds for the OTP resend cooldown before
+creating a second user, so a full run takes about a minute.
 
 It walks through health → request OTP → read the code from the log → verify → reuse rejection →
 empty summary → invalid amount → create → list → summary → repay → double-repay → cross-user
@@ -377,12 +434,13 @@ isolation → invalid token, and prints the status code for every rejection.
    **Save loan**.
 5. **Add** a second loan for "Priya" with a due date **yesterday** → the loan card shows
    **Overdue by 1 day** (glyph + wording, not just red).
-6. **Loans** tab → pull to refresh → **Mark as repaid** on Rahul's loan → the summary updates
-   (total repaid `₹1,500.50`, pending `₹0.00`).
-7. **Add** tab → attach a receipt photo → the loan card shows the *Receipt attached* badge.
-8. **Settings** → show the API base URL and the ledger snapshot → **Sign out** → sign in again to
-   show the session is restored from the keystore.
-9. Optional: `npm test` to show the 156 automated tests passing.
+6. **Loans** tab → pull to refresh → **Mark as repaid** on Rahul's loan → the summary updates:
+   Rahul moves from pending to repaid (`₹1,500.50`), while Priya stays pending and overdue.
+7. **Add** tab → attach a receipt photo while adding a loan → the loan card shows the
+   *Receipt attached* badge.
+8. **Settings** → show the API base URL and the ledger snapshot → **Sign out** → sign in again,
+   then close and reopen the app to show the session is restored from the keystore.
+9. Optional: `npm test` to show the 159 automated tests passing.
 
 ---
 
@@ -400,7 +458,7 @@ isolation → invalid token, and prints the status code for every rejection.
 | `OTP_EXPIRY_MINUTES` | `5` | Code lifetime |
 | `OTP_MAX_ATTEMPTS` | `5` | Attempts per code |
 | `OTP_RESEND_COOLDOWN_SECONDS` | `30` | Delay before a new code can be requested |
-| `OTP_LOG_ENABLED` | `true` | Print mock codes to the terminal |
+| `OTP_LOG_ENABLED` | `true` outside production | Print mock codes to the terminal (off when `NODE_ENV=production` unless set to `true`); bypasses `LOG_LEVEL` |
 | `OTP_RATE_LIMIT_PER_PHONE` / `_PER_IP` | `5` / `30` | OTP rate limits per window |
 | `OTP_RATE_LIMIT_WINDOW_MS` | `600000` | Rate-limit window (10 minutes) |
 | `APP_TIMEZONE` | `Asia/Kolkata` | Calendar timezone used for "today" |
@@ -426,7 +484,7 @@ Honest list of what is not production-ready:
 - **No refresh tokens.** The JWT lives for seven days; there is no silent renewal, so an expired
   token means signing in again.
 - **Receipts are stored on the API's local disk** and served back through the API — no object
-  storage, no image resizing, and the file is removed from disk if the upload fails.
+  storage, no image resizing, and an upload that fails after the file is written can be left behind.
 - **No pagination.** `GET /api/loans` returns every loan of the user; fine for a personal ledger,
   not for thousands of rows.
 - **No push notifications.** Overdue state is computed on read; nothing tells you that a loan
@@ -449,6 +507,7 @@ filtering on the loans endpoint, due-date reminders, and an end-to-end UI test l
 | Integration tests fail with a DB error | `DATABASE_URL_TEST` must point at `miniledger_test` in `apps/api/.env` |
 | App shows "Cannot reach the MiniLedger server" | Wrong `EXPO_PUBLIC_API_URL` — use `10.0.2.2` on an Android emulator, `localhost` on an iOS simulator, or your LAN IP on a phone |
 | App cannot load the code | Read it from the API terminal (`[MOCK OTP] …`); restart the API to see fresh lines |
+| No `[MOCK OTP]` line appears | Watch the terminal that actually started the API. If an older instance still owns port 4000, requests go to that process instead — stop every `node`/`tsx` API process, then start one `npm run api:dev`. The code is printed regardless of `LOG_LEVEL`, but only when `OTP_LOG_ENABLED=true` |
 | "The code has expired" | Codes live 5 minutes — request a new one |
 | Port 4000 already in use | Change `PORT` in `apps/api/.env` (and the mobile base URL) |
 | Expo bundler fails after a dependency change | `npx expo start --clear` |

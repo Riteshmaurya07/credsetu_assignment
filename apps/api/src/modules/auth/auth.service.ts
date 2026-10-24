@@ -98,11 +98,13 @@ export async function requestOtp(input: {
   });
 
   if (env.otpLogEnabled) {
-    logger.info(
+    // Deliberately bypasses LOG_LEVEL: the code must stay visible even when
+    // diagnostic logging is reduced to `warn` or `silent`.
+    logger.otp(
       `[MOCK OTP] phone=${phone} code=${code} expiresIn=${env.otpExpiryMinutes}m attempts=${env.otpMaxAttempts}`,
     );
   } else {
-    logger.info(`[MOCK OTP] code for ${phone} generated (OTP logging disabled)`);
+    logger.info(`A verification code was generated for ${phone} (OTP logging is disabled).`);
   }
 
   return {
